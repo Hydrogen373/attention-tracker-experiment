@@ -113,7 +113,7 @@ class BIPIADataset:
 
     def load(self, task: str, split: str = "test") -> list[PromptCase]:
         try:
-            from bipia import AutoPIABuilder
+            from bipia.data import AutoPIABuilder
         except ImportError as exc:
             raise ImportError("Install the official BIPIA package: pip install -e /path/to/BIPIA") from exc
 
