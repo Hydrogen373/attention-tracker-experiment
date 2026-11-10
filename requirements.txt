@@ -1,0 +1,12 @@
+# Install a compatible CUDA-enabled PyTorch wheel separately from pytorch.org.
+# A recent Transformers version supporting Qwen3 and eager attention is required.
+transformers>=4.51.0,<5
+accelerate>=1.2
+huggingface-hub>=0.30
+safetensors>=0.5
+datasets>=3.3,<5
+numpy>=1.26,<3
+scikit-learn>=1.5
+pandas>=2.1
+jsonlines>=4.0
+pytest>=8.0
