@@ -153,12 +153,10 @@ class DeepsetDataset:
 
 
 class BIPIADataset:
-    """Use microsoft/BIPIA AutoPIABuilder and its unmodified task prompts.
+    """Build BIPIA pairs with task instructions in system and context in user.
 
-    In the official prompt templates the untrusted context is embedded in the
-    system message. We preserve this benchmark structure (rather than silently
-    moving context to a user message) and track the *prefix before context* as
-    the instruction span. This differs from Deepset's two-role layout.
+    The official builder inserts context into its system prompt. This adapter
+    moves that untrusted context to the user role for the experiment.
     """
 
     def __init__(
@@ -236,20 +234,22 @@ class BIPIADataset:
 
             pair_id = f"{task}-{split}-{row_index}"
             for is_attack, example in [(0, clean), (1, poisoned)]:
-                # Official prompts: (system prompt, user prompt), context in system.
+                # Official prompts place context in system; separate it before
+                # assigning the experiment's system and user roles.
                 system_text, user_text = builder.construct_prompt(
                     example, require_system_prompt=True
                 )
                 context_text = example["context"]
                 if not context_text or context_text not in system_text:
                     raise RuntimeError(f"Could not find BIPIA context for {pair_id}")
-                instruction = system_text.split(context_text, 1)[0]
+                official_instruction = system_text.split(context_text, 1)[0]
+                instruction = official_instruction.rstrip() + "\n" + user_text
                 samples.append(PromptCase(
                     sample_id=f"{pair_id}-{'attack' if is_attack else 'clean'}",
                     dataset=f"bipia_{task}", label=is_attack,
-                    system=system_text, user=user_text,
+                    system=instruction, user=context_text,
                     instruction=instruction,
-                    data_parts=(context_text, user_text),
+                    data_parts=(context_text,),
                     metadata={
                         "task": task,
                         "pair_id": pair_id,

@@ -56,8 +56,12 @@ def test_bipia_produces_aligned_clean_attack_pairs(tmp_path, monkeypatch):
         clean, attack = cases[i:i+2]
         assert clean.metadata["pair_id"] == attack.metadata["pair_id"]
         assert clean.label == 0 and attack.label == 1
-        assert "Ignore all previous" not in clean.system
-        assert "Ignore all previous" in attack.system
-        assert clean.user == attack.user
-        assert clean.instruction == attack.instruction
-        assert attack.data_parts[0] == attack.metadata["context"]
+        assert clean.system == attack.system
+        assert clean.system == "Answer the question using the reference.\nReference:\nQuestion: What happened?"
+        assert "Ignore all previous" not in clean.user
+        assert "Ignore all previous" in attack.user
+        assert clean.instruction == attack.instruction == clean.system
+        assert clean.data_parts == (clean.user,)
+        assert attack.data_parts == (attack.user,)
+        assert attack.metadata["context"] == attack.user
+        assert attack.metadata["user_question"] == "Question: What happened?"

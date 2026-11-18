@@ -69,7 +69,7 @@ BIPIA의 WebQA(qa), Summarization(abstract)은 저작권 문제 때문에 데이
 
 Deepset에서는 **정상/공격을 구별하는 AUROC, AUPRC, FPR, TPR**을 계산합니다. 원 논문과 마찬가지로 시스템 instruction을 `Say xxxxxx`로 고정하며, 원본 test 데이터를 사용합니다.
 
-BIPIA에서는 공식 `AutoPIABuilder`가 삽입한 컨텍스트를 유지하고, 동일한 소스 컨텍스트에 삽입 전/후 버전을 생성해 **paired clean/attack** 탐지를 평가합니다. 시스템 메시지에 외부 컨텍스트가 들어가는 BIPIA 원래 프롬프트 구조를 보존합니다. `paired_clean_pass_attack_block_rate`는 *정상 입력을 통과시키면서 공격 입력을 차단한 짝의 비율*입니다.
+BIPIA에서는 공식 `AutoPIABuilder`가 삽입한 컨텍스트를 유지하고, 동일한 소스 컨텍스트에 삽입 전/후 버전을 생성해 **paired clean/attack** 탐지를 평가합니다. 공식 지시사항과 질문은 시스템 메시지에, 정상 또는 공격 컨텍스트는 사용자 메시지에 넣습니다. Focus Score는 시스템 메시지 전체를 지시사항으로, 컨텍스트를 데이터로 취급합니다. 이는 공식 BIPIA 프롬프트 구조와 다르므로 공식 구조에서 얻은 결과와 직접 비교할 수 없습니다. `paired_clean_pass_attack_block_rate`는 *정상 입력을 통과시키면서 공격 입력을 차단한 짝의 비율*입니다.
 
 **주의:** BIPIA의 `attack_detection_rate_tpr`는 공격 문자열 탐지율이지 공식 ASR(공격 성공률)이 아닙니다. 실제 ASR은 모델의 응답을 추가로 판정해야 합니다. `--generate-bipia-responses`는 방어 전후 응답을 저장하지만 자동 성공 판정은 하지 않습니다.
 
