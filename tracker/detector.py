@@ -8,12 +8,11 @@ from .records import PromptCase
 
 
 class AttentionTracker:
-    """One set of selected heads and one decision threshold for every benchmark."""
+    """One set of selected heads for scoring every benchmark."""
 
-    def __init__(self, model, k: float = 4.0, threshold: float | None = None):
+    def __init__(self, model, k: float = 4.0):
         self.model = model
         self.k = k
-        self.threshold = threshold
         self.important_heads: list[tuple[int, int]] = []
 
     @staticmethod
@@ -60,38 +59,11 @@ class AttentionTracker:
         per_head = self.model.head_map(case)
         return float(np.mean([per_head[layer, head] for layer, head in self.important_heads]))
 
-    def calibrate_benign(self, benign_cases: list[PromptCase], target_fpr: float = 0.05):
-        """An empirical FPR operating point; NOT trained on test/attack labels."""
-        if not 0 < target_fpr < 1:
-            raise ValueError("target_fpr must be between 0 and 1")
-        if len(benign_cases) < 2:
-            raise ValueError("At least two benign calibration cases are required")
-        scores = []
-        for case in benign_cases:
-            try:
-                scores.append(self.focus_score(case))
-            except ValueError as exc:
-                if "tokens >" not in str(exc):
-                    raise
-                print(f"[calibration] Skipped oversized example {case.sample_id}")
-        if len(scores) < 2:
-            raise RuntimeError("Insufficient scoreable benign examples to calibrate threshold")
-        print(f"[calibration] Scored {len(scores)}/{len(benign_cases)} benign examples")
-        self.threshold = float(np.quantile(scores, target_fpr))
-        return self.threshold
-
-    def predict(self, case: PromptCase):
-        if self.threshold is None:
-            raise RuntimeError("No threshold defined; calibrate or supply --threshold")
-        score = self.focus_score(case)
-        return score, score < self.threshold  # lower FS -> higher injection risk
-
     def save(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({
             "model_id": self.model.model_id,
             "k": self.k,
-            "threshold": self.threshold,
             "important_heads": self.important_heads,
             "num_layers": self.model.num_layers,
             "num_heads": self.model.num_heads,
@@ -108,7 +80,6 @@ class AttentionTracker:
         if state.get("score_method") != "normalized_sum_instruction_over_instruction_plus_data":
             raise ValueError("Saved detector uses an incompatible Focus Score definition")
         self.k = float(state["k"])
-        self.threshold = state["threshold"]
         self.important_heads = [tuple(pair) for pair in state["important_heads"]]
         if not self.important_heads:
             raise ValueError("Saved detector contains no heads")

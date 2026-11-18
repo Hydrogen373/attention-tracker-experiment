@@ -1,4 +1,4 @@
-"""CLI: (1) load model, (2) select heads, (3) threshold, (4) evaluate."""
+"""CLI: load model, select heads, and evaluate Focus Score AUROC."""
 import argparse
 import json
 import random
@@ -21,9 +21,6 @@ if __name__ == "__main__":
     parser.add_argument("--max-input-tokens", type=int, default=1024)
     parser.add_argument("--k", type=float, default=4.0)
     parser.add_argument("--num-head-examples", type=int, default=30)
-    parser.add_argument("--threshold", type=float, default=None)
-    parser.add_argument("--target-fpr", type=float, default=0.05)
-    parser.add_argument("--num-calibration-benign", type=int, default=60)
     parser.add_argument("--head-checkpoint", type=Path, default=Path("results/tracker_qwen3_8b.json"))
     parser.add_argument("--force-refit", action="store_true")
     parser.add_argument("--deepset-test-limit", type=int, default=0)
@@ -44,8 +41,7 @@ if __name__ == "__main__":
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
 
-    # The model and detector are shared across both benchmarks: one head set,
-    # one threshold, consistent scoring, no retraining between datasets.
+    # The model and selected heads are shared across both benchmarks.
     model = QwenAttentionModel(args.model_id, args.max_input_tokens, args.dtype)
     detector = AttentionTracker(model, k=args.k)
 
@@ -62,19 +58,6 @@ if __name__ == "__main__":
         np.save(args.output_dir / "head_candidate_scores.npy", candidate_scores)
         print(f"Important heads selected: {len(detector.important_heads)} / "
               f"{model.num_layers * model.num_heads}")
-
-    if args.threshold is not None:
-        detector.threshold = args.threshold
-    elif detector.threshold is None:
-        # Calibration uses *benign train only*; test labels are not used to fit
-        # head selection or threshold. Same threshold transfers to BIPIA.
-        calibration = DeepsetDataset().load(
-            "train", limit=args.num_calibration_benign, label=0
-        )
-        print(f"Calibrating at target FPR={args.target_fpr} from "
-              f"{len(calibration)} deepset train benign prompts...")
-        detector.calibrate_benign(calibration, args.target_fpr)
-        print(f"Threshold: {detector.threshold:.6f}")
 
     detector.save(args.head_checkpoint)
     runner = ExperimentRunner(model, detector, args.output_dir, args.max_new_tokens)

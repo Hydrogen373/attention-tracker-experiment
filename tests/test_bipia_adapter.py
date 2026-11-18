@@ -40,7 +40,8 @@ class FakeFactory:
 
 
 def test_bipia_produces_aligned_clean_attack_pairs(tmp_path, monkeypatch):
-    monkeypatch.setitem(sys.modules, "bipia", types.SimpleNamespace(AutoPIABuilder=FakeFactory))
+    monkeypatch.setitem(sys.modules, "bipia", types.ModuleType("bipia"))
+    monkeypatch.setitem(sys.modules, "bipia.data", types.SimpleNamespace(AutoPIABuilder=FakeFactory))
     (tmp_path / "benchmark" / "email").mkdir(parents=True)
     (tmp_path / "benchmark" / "email" / "test.jsonl").write_text(
         json.dumps({"context": "Ordinary content", "question": "What happened?", "ideal": "Nothing"}) + "\n"

@@ -22,11 +22,9 @@ class Prediction:
     dataset: str
     label: int
     focus_score: float
-    risk_score: float
-    rejected: bool
+    formatted_text: str
     metadata: dict[str, Any]
     baseline_response: str | None = None
-    defended_response: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -34,10 +32,7 @@ class Prediction:
             "dataset": self.dataset,
             "label": self.label,
             "focus_score": self.focus_score,
-            "risk_score": self.risk_score,
-            "rejected": self.rejected,
-            "correct": int(self.rejected) == self.label,
             **self.metadata,
+            "formatted_text": self.formatted_text,
             "baseline_response": self.baseline_response,
-            "defended_response": self.defended_response,
         }

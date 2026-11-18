@@ -7,9 +7,9 @@ This project reimplements the detection math in **Attention Tracker: Detecting P
 1. Load Qwen3-8B in eager-attention, non-thinking mode.
 2. Collect per-head last-input-token attention to instruction and data on 30 **synthetic** normal/ignore-attack pairs; the benchmark test set is not involved.
 3. Select important heads with `mean_normal - mean_attack - k*(std_normal + std_attack) > 0`, default `k=4` (population std).
-4. Calibrate a fixed rejection threshold on **benign Deepset train** examples (5th percentile of focus score by default).
-5. Evaluate the **Deepset test split** and BIPIA's paired clean/poisoned cases using the exact same detector and threshold. Lower focus score means more suspicious.
-6. Optionally generate baseline answers and guarded answers for BIPIA. The guarded answer is blocked if the detector rejects; otherwise it is the same unguarded answer.
+4. Score the **Deepset test split** and BIPIA's paired clean/poisoned cases with the same selected heads. Lower Focus Score means more suspicious.
+5. Measure AUROC from negative Focus Score; no rejection threshold or binary decision is used.
+6. Optionally generate original model answers for BIPIA.
 
 **Focus Score:** for each important head, sum last-token attention on the instruction range, normalize by attention on `(instruction + meaningful data ranges)`, then average over selected heads. This matches the official repository's `process_attn(..., 'normalize_sum')` and head aggregation, while extending the range handling to Qwen3 chat templates and BIPIA task prompts.
 
@@ -39,7 +39,7 @@ BIPIA's `qa` (WebQA) and `abstract` (Summarization) task context files may requi
 # Quick smoke run (still loads all 8B model parameters)
 python run_experiment.py --benchmark deepset --deepset-test-limit 20
 
-# BIPIA defense-vs-baseline response examples (no automatic ASR judge)
+# BIPIA original model response examples (no automatic ASR judge)
 python run_experiment.py --benchmark bipia --bipia-tasks email,table,code \
     --generate-bipia-responses --max-new-tokens 128
 
@@ -56,26 +56,26 @@ python run_experiment.py --benchmark bipia --bipia-max-contexts 0 \
 pytest -q
 ```
 
-`--threshold` can override calibration. If you change `--model-id`, use a different `--head-checkpoint`. If you change `--k`, re-run with `--force-refit`. For new experimental configurations it is recommended to write to a new `--output-dir` so result files do not overwrite each other.
+If you change `--model-id`, use a different `--head-checkpoint`. If you change `--k`, re-run with `--force-refit`. Use a new `--output-dir` for this score-only result format so it stays distinct from older threshold-based results.
 
 ## Outputs
 
-- `tracker_qwen3_8b.json`: selected `(layer, head)` pairs, k and threshold.
+- `tracker_qwen3_8b.json`: selected `(layer, head)` pairs and k. Older checkpoints with a threshold can still be loaded; the threshold is ignored.
 - `head_candidate_scores.npy`: per-head conservative separation scores.
 - `deepset_metrics.json`, `deepset_predictions.jsonl`.
 - `bipia_{task}_metrics.json`, `bipia_{task}_predictions.jsonl`.
 - `bipia_{task}_skipped.jsonl` if examples exceed the input-token budget.
 - `summary.json`.
 
-`*_predictions.jsonl` contains each sample's label, prediction correctness, Focus Score, risk score, and BIPIA task/attack metadata. Optional baseline and defended responses are included when `--generate-bipia-responses` is set.
+`*_predictions.jsonl` contains each sample's label, Focus Score, `formatted_text` (the complete chat-template prompt before tokenization, including the assistant generation prefix), and BIPIA task/attack metadata. Optional original model responses are included when `--generate-bipia-responses` is set. `*_metrics.json` contains AUROC and sample counts, including complete BIPIA pair counts.
 
 ## Evaluation cautions
 
-- **Deepset** is a labeled detection dataset, not a benchmark of how often a prompt injection truly alters the answer. AUROC and false positive/negative rates are valid; model ASR cannot be inferred from the labels alone.
+- **Deepset** is a labeled detection dataset, not a benchmark of how often a prompt injection truly alters the answer. AUROC evaluates ranking by Focus Score; model ASR cannot be inferred from the labels alone.
 - **BIPIA** in the original repository embeds untrusted `context` into its *system prompt*. This program extracts the official instruction, puts it and the user question in the system message, and puts the clean or poisoned context in the user message. Focus Score treats the whole system message as instruction and the context as data. This changes the official prompt layout, so results are not directly comparable with runs using the official BIPIA layout.
-- **BIPIA attack presence is not attack success**. The `attack_detection_rate_tpr` and `paired_clean_pass_attack_block_rate` are *detector-level* metrics. For genuine baseline vs defended **Attack Success Rate (ASR)**, run BIPIA's official attack-success judge or manually annotate the generated baseline output and guarded output. This repository does **not** label unjudged outputs as successful attacks.
+- **BIPIA attack presence is not attack success**. AUROC measures score ranking against attack-presence labels. To measure **Attack Success Rate (ASR)**, run BIPIA's official attack-success judge or manually annotate generated responses. This repository does **not** label unjudged outputs as successful attacks.
 - Head-selection sentences were authored independently and are **not exactly** the 30 GPT-4-generated samples used in the original paper. The model is also newer. Thus these are new experiments, **not a numerical reproduction** of published results.
-- The global rejection threshold is calibrated on the benign Deepset train set and *transferred* to BIPIA. AUROC is threshold-free; BIPIA FPR/TPR can suffer from domain shift. A BIPIA-specific threshold calibration should use a separate **BIPIA train** set, not the test set.
+- AUROC is threshold-free. BIPIA scores can still differ from Deepset because the tasks and prompt layouts differ.
 - The default BIPIA sampling is a small, reproducible **subset**: first random 3 source contexts, 2 variants per attack family, then 40 injected pairs per task. This is not the full benchmark. Increase limits for full coverage, and report skipped input examples.
 - A classifier's ROC AUC does not establish that prompt injection is prevented during real-world tool use.
 

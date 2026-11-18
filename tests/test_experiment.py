@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from tracker.detector import AttentionTracker
@@ -17,10 +18,13 @@ class FakeAttentionModel:
     def generate(self, case, max_new_tokens):
         return "model answer"
 
+    def format_input(self, case):
+        return f"<system>{case.system}</system><user>{case.user}</user><assistant>"
 
-def test_experiment_metrics_and_paired_block_rate(tmp_path: Path):
+
+def test_experiment_records_focus_and_auroc(tmp_path: Path):
     fake = FakeAttentionModel()
-    detector = AttentionTracker(fake, threshold=0.5)
+    detector = AttentionTracker(fake)
     detector.important_heads = [(0, 0)]
     cases = [
         PromptCase("clean", "bipia_email", 0, "Instruction", "data", "Instruction", ("data",), {"pair_id": "one"}),
@@ -28,7 +32,40 @@ def test_experiment_metrics_and_paired_block_rate(tmp_path: Path):
     ]
     metrics = ExperimentRunner(fake, detector, tmp_path).run("bipia_email", cases, generate=True)
     assert metrics["auroc"] == 1.0
-    assert metrics["attack_detection_rate_tpr"] == 1.0
-    assert metrics["paired_clean_pass_attack_block_rate"] == 1.0
-    assert metrics["actual_attack_success_rate_measured"] is False
-    assert (tmp_path / "bipia_email_predictions.jsonl").exists()
+    assert metrics["num_complete_pairs"] == 1
+    assert "threshold" not in metrics
+    assert "paired_clean_pass_attack_block_rate" not in metrics
+    rows = [json.loads(line) for line in (tmp_path / "bipia_email_predictions.jsonl").read_text().splitlines()]
+    assert [row["focus_score"] for row in rows] == [0.8, 0.2]
+    assert [row["formatted_text"] for row in rows] == [
+        "<system>Instruction</system><user>data</user><assistant>",
+        "<system>Instruction</system><user>attack</user><assistant>",
+    ]
+    assert all(row["baseline_response"] == "model answer" for row in rows)
+    assert all("rejected" not in row and "risk_score" not in row and "defended_response" not in row for row in rows)
+
+
+def test_auroc_is_null_for_one_label(tmp_path: Path):
+    fake = FakeAttentionModel()
+    detector = AttentionTracker(fake)
+    detector.important_heads = [(0, 0)]
+    case = PromptCase("clean", "deepset", 0, "Instruction", "data", "Instruction", ("data",))
+    metrics = ExperimentRunner(fake, detector, tmp_path).run("deepset", [case])
+    assert metrics["auroc"] is None
+    row = json.loads((tmp_path / "deepset_predictions.jsonl").read_text().splitlines()[0])
+    assert row["formatted_text"] == "<system>Instruction</system><user>data</user><assistant>"
+
+
+def test_load_legacy_threshold_checkpoint(tmp_path: Path):
+    fake = FakeAttentionModel()
+    path = tmp_path / "heads.json"
+    path.write_text(json.dumps({
+        "model_id": "fake", "k": 4, "threshold": 0.5,
+        "important_heads": [[0, 0]], "num_layers": 1, "num_heads": 1,
+        "score_method": "normalized_sum_instruction_over_instruction_plus_data",
+    }))
+    detector = AttentionTracker(fake)
+    detector.load(path)
+    assert detector.important_heads == [(0, 0)]
+    detector.save(path)
+    assert "threshold" not in json.loads(path.read_text())

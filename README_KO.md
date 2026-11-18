@@ -13,11 +13,9 @@ SyntheticHeadDataset          벤치마크와 무관한 정상-공격 30쌍 준�
     ↓
 AttentionTracker.fit_heads    Important Head 선정 (기본 k=4)
     ↓
-Deepset train의 정상 샘플     Focus Score 임계값 보정 (기본 목표 FPR=5%)
-    ↓
 DeepsetDataset / BIPIADataset 각각 로드
     ↓
-ExperimentRunner             동일 detector, 동일 threshold로 평가
+ExperimentRunner             Focus Score 기록 및 AUROC 계산
     ↓
 results/                     지표 JSON과 개별 샘플 결과 JSONL
 ```
@@ -40,7 +38,7 @@ pip install -e external/BIPIA
 python run_experiment.py --benchmark both \
   --bipia-repo external/BIPIA
 
-# 개별 샘플의 방어 전후 모델 응답까지 생성 (ASR 자동 판정은 하지 않음)
+# 개별 샘플의 원본 모델 응답까지 생성 (ASR 자동 판정은 하지 않음)
 python run_experiment.py --benchmark bipia \
   --bipia-repo external/BIPIA --generate-bipia-responses
 
@@ -56,7 +54,6 @@ python run_experiment.py --k 3 --force-refit
 | `--model-id` | Qwen/Qwen3-8B | 모델 식별자 |
 | `--k` | 4 | Head 선정 시 표준편차 보정 강도 |
 | `--max-input-tokens` | 1024 | 입력 길이 상한. 넘어가면 **기록 후 제외**, 자르지 않음 |
-| `--target-fpr` | 0.05 | Deepset train 정상 샘플 기준 임계값 보정 목표 |
 | `--bipia-tasks` | email,table,code | BIPIA 태스크 |
 | `--bipia-max-contexts` | 3 | 태스크별 원본 컨텍스트 수; 0=전체 |
 | `--bipia-max-variants-per-attack` | 2 | 공격 유형별 샘플 수; 0=전체 |
@@ -67,23 +64,25 @@ BIPIA의 WebQA(qa), Summarization(abstract)은 저작권 문제 때문에 데이
 
 ## 5. 데이터와 지표
 
-Deepset에서는 **정상/공격을 구별하는 AUROC, AUPRC, FPR, TPR**을 계산합니다. 원 논문과 마찬가지로 시스템 instruction을 `Say xxxxxx`로 고정하며, 원본 test 데이터를 사용합니다.
+Deepset에서는 Focus Score로 정상/공격을 구별하는 **AUROC**를 계산합니다. 낮은 Focus Score가 공격에 가까우므로 AUROC에는 음수 Focus Score를 사용합니다. 원 논문과 마찬가지로 시스템 instruction을 `Say xxxxxx`로 고정하며, 원본 test 데이터를 사용합니다.
 
-BIPIA에서는 공식 `AutoPIABuilder`가 삽입한 컨텍스트를 유지하고, 동일한 소스 컨텍스트에 삽입 전/후 버전을 생성해 **paired clean/attack** 탐지를 평가합니다. 공식 지시사항과 질문은 시스템 메시지에, 정상 또는 공격 컨텍스트는 사용자 메시지에 넣습니다. Focus Score는 시스템 메시지 전체를 지시사항으로, 컨텍스트를 데이터로 취급합니다. 이는 공식 BIPIA 프롬프트 구조와 다르므로 공식 구조에서 얻은 결과와 직접 비교할 수 없습니다. `paired_clean_pass_attack_block_rate`는 *정상 입력을 통과시키면서 공격 입력을 차단한 짝의 비율*입니다.
+BIPIA에서는 공식 `AutoPIABuilder`가 삽입한 컨텍스트를 유지하고, 동일한 소스 컨텍스트에 삽입 전/후 버전을 생성해 정상/공격 Focus Score와 AUROC를 평가합니다. 공식 지시사항과 질문은 시스템 메시지에, 정상 또는 공격 컨텍스트는 사용자 메시지에 넣습니다. Focus Score는 시스템 메시지 전체를 지시사항으로, 컨텍스트를 데이터로 취급합니다. 이는 공식 BIPIA 프롬프트 구조와 다르므로 공식 구조에서 얻은 결과와 직접 비교할 수 없습니다.
 
-**주의:** BIPIA의 `attack_detection_rate_tpr`는 공격 문자열 탐지율이지 공식 ASR(공격 성공률)이 아닙니다. 실제 ASR은 모델의 응답을 추가로 판정해야 합니다. `--generate-bipia-responses`는 방어 전후 응답을 저장하지만 자동 성공 판정은 하지 않습니다.
+**주의:** BIPIA의 AUROC는 공격 문자열 포함 여부에 대한 점수 순위 지표이며 공식 ASR(공격 성공률)이 아닙니다. 실제 ASR은 모델의 응답을 추가로 판정해야 합니다. `--generate-bipia-responses`는 원본 응답만 저장하며 자동 성공 판정은 하지 않습니다.
 
 ## 6. 결과 위치와 읽는 방법
 
-- `results/tracker_qwen3_8b.json`: Important Head 좌표와 threshold
+- `results/tracker_qwen3_8b.json`: Important Head 좌표와 k. 기존 체크포인트의 threshold 값은 무시
 - `results/deepset_metrics.json`: Deepset 성능 지표
-- `results/deepset_predictions.jsonl`: 개별 정상/악성 프롬프트 판단 결과
+- `results/deepset_predictions.jsonl`: 개별 정상/공격 프롬프트의 Focus Score와 `formatted_text`
 - `results/bipia_email_metrics.json` 등: 태스크별 성능 지표
-- `results/bipia_email_predictions.jsonl` 등: 공격 유형, 위치, 원본 데이터, 탐지 실패/성공, 생성 응답
+- `results/bipia_email_predictions.jsonl` 등: Focus Score, `formatted_text`, 공격 유형, 위치, 원본 데이터, 선택적 원본 모델 응답
+
+`formatted_text`는 system/user 역할 구분과 assistant 생성 시작 부분까지 포함한, 토큰화 전 채팅 템플릿 입력 문자열입니다.
 - `results/bipia_email_skipped.jsonl` 등: 길이가 길어 평가에서 제외된 샘플
 - `results/summary.json`: 벤치마크별 지표 종합
 
-논문 비교 시 반드시 **임계값 보정 데이터, 중요한 head의 개수, 평가 샘플 개수, 입력 길이로 인한 제외 샘플 수, BIPIA task별 결과**를 함께 보고하세요.
+논문 비교 시 반드시 **중요한 head의 개수, 평가 샘플 개수, 입력 길이로 인한 제외 샘플 수, BIPIA task별 결과**를 함께 보고하세요. 이전 threshold 기반 결과와 구분되는 출력 디렉터리를 사용하세요.
 
 ## 7. 알려진 제한
 

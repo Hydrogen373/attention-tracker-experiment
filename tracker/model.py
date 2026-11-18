@@ -63,14 +63,18 @@ class QwenAttentionModel:
         # Return None in that slot so all layer matrices aren't retained.
         return (output[0], None, *output[2:])
 
-    def _encode(self, case: PromptCase):
+    def format_input(self, case: PromptCase) -> str:
+        """Render the exact chat-template text used as the model prompt."""
         messages = [
             {"role": "system", "content": case.system},
             {"role": "user", "content": case.user},
         ]
-        rendered = self.tokenizer.apply_chat_template(
+        return self.tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
         )
+
+    def _encode(self, case: PromptCase):
+        rendered = self.format_input(case)
         tokens = self.tokenizer(
             rendered, add_special_tokens=False, return_offsets_mapping=True,
             return_tensors="pt", truncation=False
@@ -143,14 +147,10 @@ class QwenAttentionModel:
 
     @torch.inference_mode()
     def generate(self, case: PromptCase, max_new_tokens: int = 128) -> str:
-        messages = [
-            {"role": "system", "content": case.system},
-            {"role": "user", "content": case.user},
-        ]
-        ids = self.tokenizer.apply_chat_template(
-            messages, tokenize=True, add_generation_prompt=True,
-            enable_thinking=False, return_tensors="pt",
-        ).to(self.model.get_input_embeddings().weight.device)
+        rendered = self.format_input(case)
+        ids = self.tokenizer(
+            rendered, add_special_tokens=False, return_tensors="pt",
+        )["input_ids"].to(self.model.get_input_embeddings().weight.device)
         if ids.shape[1] > self.max_input_tokens:
             raise ValueError(f"Generation prompt too long: {case.sample_id}")
         out = self.model.generate(
