@@ -11,7 +11,7 @@ This project reimplements the detection math in **Attention Tracker: Detecting P
 5. Measure AUROC from negative Focus Score; no rejection threshold or binary decision is used.
 6. Optionally generate original model answers for BIPIA.
 
-**Focus Score:** for each important head, sum last-token attention on the instruction range, normalize by attention on `(instruction + meaningful data ranges)`, then average over selected heads. This matches the official repository's `process_attn(..., 'normalize_sum')` and head aggregation, while extending the range handling to Qwen3 chat templates and BIPIA task prompts.
+**Focus Score:** for each important head, sum last-token attention on trusted instruction ranges, normalize by attention on `(trusted ranges + external data ranges)`, then average over selected heads. For BIPIA, the trusted ranges are the system task instruction and the original user message; the external data range is the system context. A ProbeDelta probe appended to the user message is counted as data, not trusted instruction. This follows the official repository's `process_attn(..., 'normalize_sum')` aggregation while extending span handling to Qwen3 chat templates and BIPIA task prompts.
 
 ## Install
 
@@ -72,7 +72,7 @@ If you change `--model-id`, use a different `--head-checkpoint`. If you change `
 ## Evaluation cautions
 
 - **Deepset** is a labeled detection dataset, not a benchmark of how often a prompt injection truly alters the answer. AUROC evaluates ranking by Focus Score; model ASR cannot be inferred from the labels alone.
-- **BIPIA** in the original repository embeds untrusted `context` into its *system prompt*. This program extracts the official instruction, puts it and the user question in the system message, and puts the clean or poisoned context in the user message. Focus Score treats the whole system message as instruction and the context as data. This changes the official prompt layout, so results are not directly comparable with runs using the official BIPIA layout.
+- **BIPIA** embeds untrusted `context` into its *system prompt*. This program preserves that message layout and treats the system prefix plus the entire original user message as trusted instruction; only the external context is untrusted data. For the code task, the user message includes code and error text under this assumption. The attention-span interpretation extends the original tracker, so comparisons across implementations still need care.
 - **BIPIA attack presence is not attack success**. AUROC measures score ranking against attack-presence labels. To measure **Attack Success Rate (ASR)**, run BIPIA's official attack-success judge or manually annotate generated responses. This repository does **not** label unjudged outputs as successful attacks.
 - Head-selection sentences were authored independently and are **not exactly** the 30 GPT-4-generated samples used in the original paper. The model is also newer. Thus these are new experiments, **not a numerical reproduction** of published results.
 - AUROC is threshold-free. BIPIA scores can still differ from Deepset because the tasks and prompt layouts differ.

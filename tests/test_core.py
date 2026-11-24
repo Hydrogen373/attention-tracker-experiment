@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from dataclasses import replace
 
 from tracker.detector import AttentionTracker, ProbeDeltaAttentionTracker
 from tracker.datasets import SyntheticHeadDataset
@@ -71,6 +72,23 @@ def test_probe_drop_appends_only_user_text_and_preserves_case():
     assert probed.user == f"User data\n\n{tracker.PROBE_TEXT}"
     assert probed.data_parts == ("User data", tracker.PROBE_TEXT)
     assert probed.metadata == case.metadata
+
+
+def test_probe_preserves_original_user_as_trusted_span():
+    model = ProbeModel()
+    tracker = ProbeDeltaAttentionTracker(model, threshold=0.3)
+    tracker.important_heads = [(0, 0)]
+    case = probe_case(1)
+    case = replace(
+        case,
+        system="System instructionUser data", user="trusted question",
+        attention_parts=(("instruction", case.instruction), ("data", "User data"),
+                         ("instruction", "trusted question")),
+    )
+    tracker.score_drop(case)
+    assert model.seen[1].attention_parts == (
+        *case.attention_parts, ("data", tracker.PROBE_TEXT)
+    )
 
 
 def test_probe_calibration_and_strict_boundary():

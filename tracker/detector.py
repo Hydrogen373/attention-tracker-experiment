@@ -112,6 +112,10 @@ class ProbeDeltaAttentionTracker(AttentionTracker):
             case,
             user=f"{case.user}\n\n{self.PROBE_TEXT}",
             data_parts=(*case.data_parts, self.PROBE_TEXT),
+            attention_parts=(
+                (*case.attention_parts, ("data", self.PROBE_TEXT))
+                if case.attention_parts is not None else None
+            ),
         )
         probed_score = self.focus_score(probed_case)
         return original_score - probed_score

@@ -66,7 +66,7 @@ BIPIA의 WebQA(qa), Summarization(abstract)은 저작권 문제 때문에 데이
 
 Deepset에서는 Focus Score로 정상/공격을 구별하는 **AUROC**를 계산합니다. 낮은 Focus Score가 공격에 가까우므로 AUROC에는 음수 Focus Score를 사용합니다. 원 논문과 마찬가지로 시스템 instruction을 `Say xxxxxx`로 고정하며, 원본 test 데이터를 사용합니다.
 
-BIPIA에서는 공식 `AutoPIABuilder`가 삽입한 컨텍스트를 유지하고, 동일한 소스 컨텍스트에 삽입 전/후 버전을 생성해 정상/공격 Focus Score와 AUROC를 평가합니다. 공식 지시사항과 질문은 시스템 메시지에, 정상 또는 공격 컨텍스트는 사용자 메시지에 넣습니다. Focus Score는 시스템 메시지 전체를 지시사항으로, 컨텍스트를 데이터로 취급합니다. 이는 공식 BIPIA 프롬프트 구조와 다르므로 공식 구조에서 얻은 결과와 직접 비교할 수 없습니다.
+BIPIA에서는 공식 `AutoPIABuilder`가 삽입한 컨텍스트를 유지하고, 동일한 소스 컨텍스트에 삽입 전/후 버전을 생성해 정상/공격 Focus Score와 AUROC를 평가합니다. 공식 프롬프트 구조대로 정상 또는 공격 컨텍스트를 시스템 메시지에, 질문을 사용자 메시지에 둡니다. Focus Score는 시스템 메시지에서 컨텍스트 앞부분과 원래 사용자 메시지 전체를 신뢰할 수 있는 지시사항으로, 외부 컨텍스트를 데이터로 취급합니다. code 태스크의 사용자 메시지에 포함된 코드와 오류 내용도 이 가정에 포함됩니다. ProbeDelta가 사용자 메시지 뒤에 추가하는 probe는 데이터 범위에 넣습니다. Attention Tracker의 범위 해석을 확장한 구현이므로 다른 구현과 결과를 비교할 때 이 차이를 고려해야 합니다.
 
 **주의:** BIPIA의 AUROC는 공격 문자열 포함 여부에 대한 점수 순위 지표이며 공식 ASR(공격 성공률)이 아닙니다. 실제 ASR은 모델의 응답을 추가로 판정해야 합니다. `--generate-bipia-responses`는 원본 응답만 저장하며 자동 성공 판정은 하지 않습니다.
 

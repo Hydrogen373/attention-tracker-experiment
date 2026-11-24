@@ -14,6 +14,8 @@ class PromptCase:
     # Exact meaningful data strings, in the order they appear in the formatted chat.
     data_parts: tuple[str, ...]
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Optional ordered attention spans for prompts with separated trusted text.
+    attention_parts: tuple[tuple[str, str], ...] | None = None
 
 
 @dataclass(frozen=True)

@@ -86,30 +86,39 @@ class QwenAttentionModel:
                 f"--max-input-tokens={self.max_input_tokens}; skipped, not truncated."
             )
 
-        # Locate text ranges on the actual Qwen chat-template string, then use
-        # tokenizer offset mapping. Avoid guessing offsets from raw token lengths.
-        inst_start = rendered.find(case.instruction)
-        if inst_start < 0:
-            raise ValueError(f"Instruction span missing in {case.sample_id}")
-        inst_end = inst_start + len(case.instruction)
-        data_ranges = []
-        cursor = inst_end
-        for part in case.data_parts:
+        # Locate ordered spans in the rendered chat template. BIPIA has trusted
+        # text on both sides of untrusted context; older cases use one prefix.
+        parts = case.attention_parts
+        if parts is None:
+            parts = (("instruction", case.instruction),) + tuple(
+                ("data", part) for part in case.data_parts
+            )
+        inst_ranges, data_ranges = [], []
+        cursor = 0
+        for kind, part in parts:
+            if kind not in {"instruction", "data"}:
+                raise ValueError(f"Unknown attention span kind {kind!r} in {case.sample_id}")
             if not part:
                 continue
             start = rendered.find(part, cursor)
             if start < 0:
-                raise ValueError(f"Data span missing or out of order in {case.sample_id}")
-            data_ranges.append((start, start + len(part)))
+                raise ValueError(f"Attention span missing or out of order in {case.sample_id}")
+            (inst_ranges if kind == "instruction" else data_ranges).append(
+                (start, start + len(part))
+            )
             cursor = start + len(part)
 
         inst_ids, data_ids = [], []
         for idx, (a, b) in enumerate(offsets):
             if b <= a:  # special tokens with empty offset
                 continue
-            if a < inst_end and b > inst_start:
+            in_inst = any(a < end and b > start for start, end in inst_ranges)
+            in_data = any(a < end and b > start for start, end in data_ranges)
+            if in_inst and in_data:
+                continue  # A boundary-crossing token belongs to neither range.
+            if in_inst:
                 inst_ids.append(idx)
-            elif any(a < end and b > start for start, end in data_ranges):
+            elif in_data:
                 data_ids.append(idx)
         if not inst_ids or not data_ids:
             raise ValueError(f"Empty instruction/data token selection in {case.sample_id}")

@@ -153,10 +153,10 @@ class DeepsetDataset:
 
 
 class BIPIADataset:
-    """Build BIPIA pairs with task instructions in system and context in user.
+    """Use microsoft/BIPIA AutoPIABuilder and its unmodified task prompts.
 
-    The official builder inserts context into its system prompt. This adapter
-    moves that untrusted context to the user role for the experiment.
+    The official templates place untrusted context in the system message.
+    Keep that layout and track the instruction prefix before the context.
     """
 
     def __init__(
@@ -234,22 +234,25 @@ class BIPIADataset:
 
             pair_id = f"{task}-{split}-{row_index}"
             for is_attack, example in [(0, clean), (1, poisoned)]:
-                # Official prompts place context in system; separate it before
-                # assigning the experiment's system and user roles.
+                # Official prompts: context in system, question in user.
                 system_text, user_text = builder.construct_prompt(
                     example, require_system_prompt=True
                 )
                 context_text = example["context"]
-                if not context_text or context_text not in system_text:
-                    raise RuntimeError(f"Could not find BIPIA context for {pair_id}")
-                official_instruction = system_text.split(context_text, 1)[0]
-                instruction = official_instruction.rstrip() + "\n" + user_text
+                if not context_text or not system_text.endswith(context_text):
+                    raise RuntimeError(f"BIPIA context is not at the end of the system prompt for {pair_id}")
+                instruction = system_text[:-len(context_text)]
                 samples.append(PromptCase(
                     sample_id=f"{pair_id}-{'attack' if is_attack else 'clean'}",
                     dataset=f"bipia_{task}", label=is_attack,
-                    system=instruction, user=context_text,
+                    system=system_text, user=user_text,
                     instruction=instruction,
                     data_parts=(context_text,),
+                    attention_parts=(
+                        ("instruction", instruction),
+                        ("data", context_text),
+                        ("instruction", user_text),
+                    ),
                     metadata={
                         "task": task,
                         "pair_id": pair_id,
