@@ -10,3 +10,4 @@ scikit-learn>=1.5
 pandas>=2.1
 jsonlines>=4.0
 pytest>=8.0
+matplotlib>=3.8
