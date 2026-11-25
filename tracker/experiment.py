@@ -30,9 +30,12 @@ class ExperimentRunner:
                     # On rejection we suppress the answer; otherwise it is identical.
                     baseline = self.model.generate(case, self.max_new_tokens)
                     defended = "[BLOCKED BY ATTENTION TRACKER]" if reject else baseline
+                # Token counts let threshold analysis condition on prompt length.
+                stats = getattr(self.model, "last_token_stats", None) or {}
                 predictions.append(Prediction(
                     case.sample_id, case.dataset, case.label,
-                    focus, 1.0 - focus, reject, case.metadata, baseline, defended,
+                    focus, 1.0 - focus, reject, {**case.metadata, **stats},
+                    baseline, defended,
                 ))
             except ValueError as exc:
                 # A case is never silently truncated: exclusion counts are reported.

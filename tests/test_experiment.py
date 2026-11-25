@@ -9,6 +9,7 @@ class FakeAttentionModel:
     model_id = "fake"
     num_layers = 1
     num_heads = 1
+    last_token_stats = {"input_tokens": 40, "instruction_tokens": 4, "data_tokens": 30}
 
     def head_map(self, case):
         import numpy as np
@@ -31,4 +32,5 @@ def test_experiment_metrics_and_paired_block_rate(tmp_path: Path):
     assert metrics["attack_detection_rate_tpr"] == 1.0
     assert metrics["paired_clean_pass_attack_block_rate"] == 1.0
     assert metrics["actual_attack_success_rate_measured"] is False
-    assert (tmp_path / "bipia_email_predictions.jsonl").exists()
+    lines = (tmp_path / "bipia_email_predictions.jsonl").read_text(encoding="utf-8").splitlines()
+    assert '"instruction_tokens": 4' in lines[0] and '"input_tokens": 40' in lines[0]

@@ -14,6 +14,9 @@ class PromptCase:
     # Exact meaningful data strings, in the order they appear in the formatted chat.
     data_parts: tuple[str, ...]
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Trusted text that appears *after* the data, e.g. the BIPIA user question.
+    # Counted as instruction alongside `instruction`.
+    instruction_parts: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
