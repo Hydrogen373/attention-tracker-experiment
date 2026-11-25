@@ -91,3 +91,39 @@ BIPIA에서는 공식 `AutoPIABuilder`가 삽입한 컨텍스트를 유지하고
 - Attention Tracker 공개 구현의 `normalize_sum` 수식과 head 선택 수식에 기반하지만, Qwen3/새 데이터 형식을 대상으로 한 확장입니다. 논문 수치의 완전 재현을 의미하지 않습니다.
 - 기본 BIPIA 실행은 **작은 표본**입니다. 전체 벤치마크로 평가하려면 세 가지 `--bipia-max-*` 값을 0으로 바꾸고 GPU 메모리/입력 길이 상한을 조정하세요.
 - 8B 모델의 attention 행렬을 계산하므로 충분한 VRAM이 필요합니다. 24GB 이상 권장하며, 긴 BIPIA 문서는 더 많은 메모리를 요구할 수 있습니다.
+
+## 8. 임계값 정책 비교
+
+같은 head와 Focus Score를 써도 데이터셋마다 적절한 임곗값이 다를 수 있어, 임곗값 정하는 방식을 독립 분할에서 비교합니다. 저장된 `*_predictions.jsonl`만 읽으므로 **GPU 없이** 실행됩니다.
+
+### 비교하는 정책
+
+모든 정책은 **보정 세트의 정상 샘플만** 사용해 같은 목표 FPR(기본 5%)로 임곗값을 정합니다. 공격 라벨은 테스트 TPR 계산에만 씁니다.
+
+| 정책 | 임곗값 |
+|---|---|
+| `global` | 모든 데이터셋의 정상 점수를 합친 분위수 하나 |
+| `per_task` | 데이터셋별 정상 점수 분위수 |
+| `length_conditional` | `a + b·x + q` 하나의 식. `x`는 지시문 토큰 비율(기본) 또는 log(지시문 토큰 수). 태스크 이름을 모르고도 `per_task`만큼 되는지 확인 |
+
+- **컨텍스트 분리 분할:** BIPIA는 같은 원본 컨텍스트가 여러 공격 변형에 재사용되므로, 원본 컨텍스트 단위로 보정/테스트를 나눕니다. Deepset은 샘플 단위로 나눕니다. 기본 20회 반복 후 평균과 표준편차를 보고합니다.
+- **Leave-one-dataset-out:** 한 데이터셋을 빼고 나머지로 임곗값을 정한 뒤 빠진 데이터셋에 적용합니다. 새 태스크로의 일반화를 봅니다.
+- **Pooled AUROC:** 원래 Focus Score와 길이 보정 점수(`예측 정상 점수 - 실제 점수`)로 전체 데이터셋을 한 척도에서 순위 매겼을 때의 AUROC입니다. 길이 보정이 태스크 간 척도 차이를 줄이는지 봅니다.
+
+### 실행
+
+길이 정책에는 샘플별 토큰 수가 필요합니다. 이번 버전부터 `run_experiment.py`가 예측 JSONL에 `input_tokens`, `instruction_tokens`, `data_tokens`를 저장합니다. 기존 결과에는 이 값이 없으므로 다시 실행해야 하고, 없으면 `global`/`per_task`만 비교합니다.
+
+원본 컨텍스트가 적으면 분할이 거칠어집니다(6개 미만이면 경고). 컨텍스트를 전부 쓰고 짝 수로 규모를 조절하는 설정을 권장합니다.
+
+```bash
+# 1) GPU에서 예측 생성 (컨텍스트 전체 사용)
+python run_experiment.py --benchmark both --bipia-repo external/BIPIA \
+  --bipia-max-contexts 0 --bipia-max-variants-per-attack 1 --bipia-max-pairs 300
+
+# 2) CPU에서 정책 비교
+python evaluate_thresholds.py --results-dir results
+python evaluate_thresholds.py --results-dir results --length-feature log_instruction_tokens
+```
+
+결과는 마크다운 표로 출력되고 `results/threshold_policies.json`에 저장됩니다.

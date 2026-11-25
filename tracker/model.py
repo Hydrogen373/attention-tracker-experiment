@@ -39,6 +39,8 @@ class QwenAttentionModel:
         self._inst_indices = None
         self._data_indices = None
         self._handles = []
+        # Token counts of the most recent head_map() call, for length analysis.
+        self.last_token_stats = None
         for index, layer in enumerate(self.model.model.layers):
             handle = layer.self_attn.register_forward_hook(
                 lambda module, args, output, layer_id=index: self._attention_hook(layer_id, output)
@@ -98,12 +100,21 @@ class QwenAttentionModel:
                 raise ValueError(f"Data span missing or out of order in {case.sample_id}")
             data_ranges.append((start, start + len(part)))
             cursor = start + len(part)
+        inst_ranges = [(inst_start, inst_end)]
+        for part in case.instruction_parts:
+            if not part:
+                continue
+            start = rendered.find(part, cursor)
+            if start < 0:
+                raise ValueError(f"Trailing instruction span missing in {case.sample_id}")
+            inst_ranges.append((start, start + len(part)))
+            cursor = start + len(part)
 
         inst_ids, data_ids = [], []
         for idx, (a, b) in enumerate(offsets):
             if b <= a:  # special tokens with empty offset
                 continue
-            if a < inst_end and b > inst_start:
+            if any(a < end and b > start for start, end in inst_ranges):
                 inst_ids.append(idx)
             elif any(a < end and b > start for start, end in data_ranges):
                 data_ids.append(idx)
@@ -116,6 +127,11 @@ class QwenAttentionModel:
     @torch.inference_mode()
     def head_map(self, case: PromptCase) -> np.ndarray:
         input_ids, instruction_ids, data_ids = self._encode(case)
+        self.last_token_stats = {
+            "input_tokens": int(input_ids.shape[1]),
+            "instruction_tokens": len(instruction_ids),
+            "data_tokens": len(data_ids),
+        }
         # This feature is deterministic under eval mode and no generation.
         self._inst_indices = torch.tensor(instruction_ids, dtype=torch.long)
         self._data_indices = torch.tensor(data_ids, dtype=torch.long)

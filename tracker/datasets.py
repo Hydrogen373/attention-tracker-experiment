@@ -93,8 +93,9 @@ class BIPIADataset:
 
     In the official prompt templates the untrusted context is embedded in the
     system message. We preserve this benchmark structure (rather than silently
-    moving context to a user message) and track the *prefix before context* as
-    the instruction span. This differs from Deepset's two-role layout.
+    moving context to a user message). Instruction = system prefix before the
+    context + the user turn; data = the external context only. This differs
+    from Deepset, where the user text itself is the data.
     """
 
     def __init__(
@@ -185,7 +186,10 @@ class BIPIADataset:
                     dataset=f"bipia_{task}", label=is_attack,
                     system=system_text, user=user_text,
                     instruction=instruction,
-                    data_parts=(context_text, user_text),
+                    # BIPIA attacks only the external context; the user is the
+                    # victim, so the user turn is trusted instruction, not data.
+                    data_parts=(context_text,),
+                    instruction_parts=(user_text,),
                     metadata={
                         "task": task,
                         "pair_id": pair_id,
