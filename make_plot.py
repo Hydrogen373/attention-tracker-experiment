@@ -1,4 +1,4 @@
-"""Plot Focus Score against trusted-instruction length from saved experiment results."""
+"""Plot Focus Score and ProbeDelta score drop against trusted-instruction length."""
 
 import json
 import math
@@ -15,6 +15,10 @@ DATASETS = {
     "bipia_email": ("BIPIA email", "blue"),
     "bipia_table": ("BIPIA table", "green"),
     "bipia_code": ("BIPIA code", "purple"),
+}
+METRICS = {
+    "focus_score": ("Focus Score", "focus", (-0.02, 1.02)),
+    "score_drop": ("Score Drop", "score_drop", None),
 }
 SYSTEM_START = "<|im_start|>system\n"
 USER_START = "<|im_end|>\n<|im_start|>user\n"
@@ -72,10 +76,12 @@ def case_from_prediction(row):
     )
 
 
-def load_points(results_dir, tokenizer):
+def load_points(results_dir, tokenizer, score_field="focus_score", datasets=None):
     encoder = SavedPromptEncoder(tokenizer)
     points = []
-    for dataset in DATASETS:
+    if datasets is None:
+        datasets = DATASETS
+    for dataset in datasets:
         path = results_dir / f"{dataset}_predictions.jsonl"
         if not path.is_file():
             raise FileNotFoundError(f"Missing experiment results: {path}. Run run_experiment.py first.")
@@ -86,9 +92,9 @@ def load_points(results_dir, tokenizer):
                 row = json.loads(line)
                 if row["dataset"] != dataset or row["label"] not in (0, 1):
                     raise ValueError(f"Invalid dataset or label in {path}:{line_number}")
-                score = float(row["focus_score"])
+                score = float(row[score_field])
                 if not math.isfinite(score):
-                    raise ValueError(f"Non-finite Focus Score in {path}:{line_number}")
+                    raise ValueError(f"Non-finite {score_field} in {path}:{line_number}")
                 case = case_from_prediction(row)
                 input_ids, instruction_ids, _ = encoder._encode(case)
                 instruction_tokens = len(instruction_ids)
@@ -100,15 +106,16 @@ def load_points(results_dir, tokenizer):
     return points
 
 
-def save_plots(points, results_dir):
+def save_plots(points, results_dir, score_field="focus_score"):
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    y_label, suffix, y_limits = METRICS[score_field]
     charts = (
-        (2, "Instruction tokens", "instruction_token_count_vs_focus.png"),
-        (3, "Instruction tokens / all input tokens", "instruction_token_ratio_vs_focus.png"),
+        (2, "Instruction tokens", f"instruction_token_count_vs_{suffix}.png"),
+        (3, "Instruction tokens / all input tokens", f"instruction_token_ratio_vs_{suffix}.png"),
     )
     for x_index, x_label, filename in charts:
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -120,7 +127,9 @@ def save_plots(points, results_dir):
                     c=color, marker=marker, s=30, alpha=0.6, edgecolors="none",
                     label=f"{name} · {kind}",
                 )
-        ax.set(xlabel=x_label, ylabel="Focus Score", ylim=(-0.02, 1.02))
+        ax.set(xlabel=x_label, ylabel=y_label)
+        if y_limits is not None:
+            ax.set_ylim(*y_limits)
         if x_index == 3:
             ax.set_xlim(-0.02, 1.02)
         ax.grid(alpha=0.2)
@@ -143,6 +152,18 @@ def main():
     points = load_points(RESULTS, tokenizer)
     save_plots(points, RESULTS)
     print(f"Saved two Focus Score plots to {RESULTS}")
+
+    probe_results = RESULTS / "probedelta"
+    probe_datasets = [
+        dataset for dataset in DATASETS
+        if (probe_results / f"{dataset}_predictions.jsonl").is_file()
+    ]
+    if probe_datasets:
+        probe_points = load_points(
+            probe_results, tokenizer, score_field="score_drop", datasets=probe_datasets
+        )
+        save_plots(probe_points, probe_results, score_field="score_drop")
+        print(f"Saved two ProbeDelta plots to {probe_results}")
 
 
 if __name__ == "__main__":
