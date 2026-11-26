@@ -126,6 +126,11 @@ class QwenAttentionModel:
             raise ValueError(f"Overlapping token regions in {case.sample_id}")
         return tokens["input_ids"], inst_ids, data_ids
 
+    def token_counts(self, case: PromptCase) -> tuple[int, int]:
+        """Count trusted instruction tokens and all tokens in the original prompt."""
+        input_ids, instruction_ids, _ = self._encode(case)
+        return len(instruction_ids), input_ids.shape[1]
+
     @torch.inference_mode()
     def head_map(self, case: PromptCase) -> np.ndarray:
         input_ids, instruction_ids, data_ids = self._encode(case)

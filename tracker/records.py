@@ -26,7 +26,10 @@ class Prediction:
     focus_score: float
     formatted_text: str
     metadata: dict[str, Any]
+    instruction_token_count: int
+    total_token_count: int
     baseline_response: str | None = None
+    attack_success: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -36,5 +39,8 @@ class Prediction:
             "focus_score": self.focus_score,
             **self.metadata,
             "formatted_text": self.formatted_text,
+            "instruction_token_count": self.instruction_token_count,
+            "total_token_count": self.total_token_count,
             "baseline_response": self.baseline_response,
+            "attack_success": self.attack_success,
         }

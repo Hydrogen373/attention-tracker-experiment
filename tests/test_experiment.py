@@ -21,6 +21,9 @@ class FakeAttentionModel:
     def format_input(self, case):
         return f"<system>{case.system}</system><user>{case.user}</user><assistant>"
 
+    def token_counts(self, case):
+        return len(case.instruction), len(self.format_input(case))
+
 
 def test_experiment_records_focus_and_auroc(tmp_path: Path):
     fake = FakeAttentionModel()
@@ -42,6 +45,9 @@ def test_experiment_records_focus_and_auroc(tmp_path: Path):
         "<system>Instruction</system><user>attack</user><assistant>",
     ]
     assert all(row["baseline_response"] == "model answer" for row in rows)
+    assert all("attack_success" in row and row["attack_success"] is None for row in rows)
+    assert all(row["instruction_token_count"] == len("Instruction") for row in rows)
+    assert all(row["total_token_count"] == len(row["formatted_text"]) for row in rows)
     assert all("rejected" not in row and "risk_score" not in row and "defended_response" not in row for row in rows)
 
 
@@ -54,6 +60,25 @@ def test_auroc_is_null_for_one_label(tmp_path: Path):
     assert metrics["auroc"] is None
     row = json.loads((tmp_path / "deepset_predictions.jsonl").read_text().splitlines()[0])
     assert row["formatted_text"] == "<system>Instruction</system><user>data</user><assistant>"
+    assert row["baseline_response"] is None
+    assert "attack_success" in row and row["attack_success"] is None
+    assert row["instruction_token_count"] == len("Instruction")
+    assert row["total_token_count"] == len(row["formatted_text"])
+    assert metrics["response_generation_enabled"] is False
+
+
+def test_deepset_response_generation(tmp_path: Path):
+    fake = FakeAttentionModel()
+    detector = AttentionTracker(fake)
+    detector.important_heads = [(0, 0)]
+    case = PromptCase("deepset-clean", "deepset", 0, "Instruction", "data", "Instruction", ("data",))
+
+    metrics = ExperimentRunner(fake, detector, tmp_path).run("deepset", [case], generate=True)
+
+    row = json.loads((tmp_path / "deepset_predictions.jsonl").read_text().splitlines()[0])
+    assert row["baseline_response"] == "model answer"
+    assert "attack_success" in row and row["attack_success"] is None
+    assert metrics["response_generation_enabled"] is True
 
 
 def test_load_legacy_threshold_checkpoint(tmp_path: Path):

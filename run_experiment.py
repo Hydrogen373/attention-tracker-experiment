@@ -29,7 +29,7 @@ if __name__ == "__main__":
     parser.add_argument("--bipia-max-contexts", type=int, default=3)
     parser.add_argument("--bipia-max-variants-per-attack", type=int, default=2)
     parser.add_argument("--bipia-max-pairs", type=int, default=40)
-    parser.add_argument("--generate-bipia-responses", action="store_true")
+    parser.add_argument("--generate-responses", action="store_true")
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--output-dir", type=Path, default=Path("results"))
     parser.add_argument("--seed", type=int, default=2023)
@@ -65,7 +65,9 @@ if __name__ == "__main__":
 
     if args.benchmark in {"deepset", "both"}:
         cases = DeepsetDataset().load("test", limit=args.deepset_test_limit)
-        all_metrics["deepset"] = runner.run("deepset", cases)
+        all_metrics["deepset"] = runner.run(
+            "deepset", cases, generate=args.generate_responses,
+        )
 
     if args.benchmark in {"bipia", "both"}:
         bipia = BIPIADataset(
@@ -77,7 +79,7 @@ if __name__ == "__main__":
             cases = bipia.load(task, split="test")
             name = f"bipia_{task}"
             all_metrics[name] = runner.run(
-                name, cases, generate=args.generate_bipia_responses,
+                name, cases, generate=args.generate_responses,
             )
 
     (args.output_dir / "summary.json").write_text(

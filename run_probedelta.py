@@ -19,6 +19,7 @@ def run_dataset(name, cases, model, detector, output_dir, generate=False, max_ne
     for index, case in enumerate(cases, 1):
         try:
             drop = detector.score_drop(case)
+            instruction_tokens, total_tokens = model.token_counts(case)
             baseline = model.generate(case, max_new_tokens) if generate else None
         except ValueError as exc:
             if "tokens >" not in str(exc) and "Generation prompt too long" not in str(exc):
@@ -31,7 +32,10 @@ def run_dataset(name, cases, model, detector, output_dir, generate=False, max_ne
             "probe_text": detector.probe_text(case),
             **case.metadata,
             "formatted_text": model.format_input(case),
+            "instruction_token_count": instruction_tokens,
+            "total_token_count": total_tokens,
             "baseline_response": baseline,
+            "attack_success": None,
         })
         if index % 10 == 0 or index == len(cases):
             print(f"[{name}] {index}/{len(cases)} processed; {len(skipped)} skipped")
@@ -92,7 +96,7 @@ def main():
     parser.add_argument("--bipia-max-contexts", type=int, default=3)
     parser.add_argument("--bipia-max-variants-per-attack", type=int, default=2)
     parser.add_argument("--bipia-max-pairs", type=int, default=40)
-    parser.add_argument("--generate-bipia-responses", action="store_true")
+    parser.add_argument("--generate-responses", action="store_true")
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--output-dir", type=Path, default=Path("results/probedelta"))
     parser.add_argument("--seed", type=int, default=2023)
@@ -114,7 +118,10 @@ def main():
     summary = {}
     if args.benchmark in {"deepset", "both"}:
         cases = DeepsetDataset().load("test", limit=args.deepset_test_limit)
-        summary["deepset"] = run_dataset("deepset", cases, model, detector, args.output_dir)
+        summary["deepset"] = run_dataset(
+            "deepset", cases, model, detector, args.output_dir,
+            generate=args.generate_responses, max_new_tokens=args.max_new_tokens,
+        )
     if args.benchmark in {"bipia", "both"}:
         bipia = BIPIADataset(
             args.bipia_repo, args.seed, args.bipia_max_contexts,
@@ -128,7 +135,7 @@ def main():
             cases = bipia.load(task, split="test")
             summary[name] = run_dataset(
                 name, cases, model, detector, args.output_dir,
-                generate=args.generate_bipia_responses,
+                generate=args.generate_responses,
                 max_new_tokens=args.max_new_tokens,
             )
     (args.output_dir / "summary.json").write_text(

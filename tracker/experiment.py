@@ -21,12 +21,16 @@ class ExperimentRunner:
         for index, case in enumerate(cases, start=1):
             try:
                 focus = self.detector.focus_score(case)
+                instruction_tokens, total_tokens = self.model.token_counts(case)
                 baseline = None
                 if generate:
                     baseline = self.model.generate(case, self.max_new_tokens)
                 predictions.append(Prediction(
                     case.sample_id, case.dataset, case.label,
-                    focus, self.model.format_input(case), case.metadata, baseline,
+                    focus, self.model.format_input(case), case.metadata,
+                    instruction_token_count=instruction_tokens,
+                    total_token_count=total_tokens,
+                    baseline_response=baseline,
                 ))
             except ValueError as exc:
                 # A case is never silently truncated: exclusion counts are reported.

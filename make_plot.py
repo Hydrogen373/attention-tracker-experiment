@@ -4,9 +4,6 @@ import json
 import math
 from pathlib import Path
 
-from tracker.model import QwenAttentionModel
-from tracker.records import PromptCase
-
 
 ROOT = Path(__file__).resolve().parent
 RESULTS = ROOT / "results"
@@ -20,64 +17,9 @@ METRICS = {
     "focus_score": ("Focus Score", "focus", (-0.02, 1.02)),
     "score_drop": ("Score Drop", "score_drop", None),
 }
-SYSTEM_START = "<|im_start|>system\n"
-USER_START = "<|im_end|>\n<|im_start|>user\n"
 
 
-class SavedPromptEncoder:
-    """Use the experiment's exact token-to-attention-span assignment without a GPU."""
-
-    _encode = QwenAttentionModel._encode
-
-    def __init__(self, tokenizer):
-        self.tokenizer = tokenizer
-        self.max_input_tokens = float("inf")
-
-    def format_input(self, case):
-        return case.metadata["formatted_text"]
-
-
-def case_from_prediction(row):
-    """Rebuild the attention spans from fields saved by run_experiment.py."""
-    dataset = row["dataset"]
-    if dataset not in DATASETS:
-        raise ValueError(f"Unsupported dataset: {dataset}")
-
-    rendered = row["formatted_text"]
-    user = row["text"] if dataset == "deepset" else row["user_question"]
-    if not rendered.startswith(SYSTEM_START):
-        raise ValueError(f"Unexpected chat template in {row['sample_id']}")
-    boundary = rendered.find(USER_START + user, len(SYSTEM_START))
-    if boundary < 0:
-        raise ValueError(f"User text missing from formatted prompt in {row['sample_id']}")
-    system = rendered[len(SYSTEM_START):boundary]
-
-    if dataset == "deepset":
-        instruction = system
-        data_parts = (user,)
-        attention_parts = None
-    else:
-        context = row["context"]
-        if not context or not system.endswith(context):
-            raise ValueError(f"Context is not at the end of the system prompt in {row['sample_id']}")
-        instruction = system[:-len(context)]
-        data_parts = (context,)
-        attention_parts = (
-            ("instruction", instruction),
-            ("data", context),
-            ("instruction", user),
-        )
-
-    return PromptCase(
-        sample_id=row["sample_id"], dataset=dataset, label=row["label"],
-        system=system, user=user, instruction=instruction,
-        data_parts=data_parts, metadata={"formatted_text": rendered},
-        attention_parts=attention_parts,
-    )
-
-
-def load_points(results_dir, tokenizer, score_field="focus_score", datasets=None):
-    encoder = SavedPromptEncoder(tokenizer)
+def load_points(results_dir, score_field="focus_score", datasets=None):
     points = []
     if datasets is None:
         datasets = DATASETS
@@ -95,11 +37,18 @@ def load_points(results_dir, tokenizer, score_field="focus_score", datasets=None
                 score = float(row[score_field])
                 if not math.isfinite(score):
                     raise ValueError(f"Non-finite {score_field} in {path}:{line_number}")
-                case = case_from_prediction(row)
-                input_ids, instruction_ids, _ = encoder._encode(case)
-                instruction_tokens = len(instruction_ids)
-                total_tokens = input_ids.shape[1]
-                points.append((dataset, case.label, instruction_tokens,
+                for field in ("instruction_token_count", "total_token_count"):
+                    if field not in row:
+                        raise ValueError(
+                            f"Missing {field} in {path}:{line_number}; rerun the experiment"
+                        )
+                    if type(row[field]) is not int:
+                        raise ValueError(f"Invalid {field} in {path}:{line_number}")
+                instruction_tokens = row["instruction_token_count"]
+                total_tokens = row["total_token_count"]
+                if not 0 < instruction_tokens <= total_tokens:
+                    raise ValueError(f"Invalid token counts in {path}:{line_number}")
+                points.append((dataset, row["label"], instruction_tokens,
                                instruction_tokens / total_tokens, score))
     if not points:
         raise ValueError(f"No prediction rows found in {results_dir}")
@@ -140,16 +89,7 @@ def save_plots(points, results_dir, score_field="focus_score"):
 
 
 def main():
-    from transformers import AutoTokenizer
-
-    checkpoint = RESULTS / "tracker_qwen3_8b.json"
-    if not checkpoint.is_file():
-        raise FileNotFoundError(f"Missing head checkpoint: {checkpoint}. Run run_experiment.py first.")
-    model_id = json.loads(checkpoint.read_text(encoding="utf-8"))["model_id"]
-    tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True)
-    if not tokenizer.is_fast:
-        raise RuntimeError("A fast tokenizer with character offsets is required")
-    points = load_points(RESULTS, tokenizer)
+    points = load_points(RESULTS)
     save_plots(points, RESULTS)
     print(f"Saved two Focus Score plots to {RESULTS}")
 
@@ -160,7 +100,7 @@ def main():
     ]
     if probe_datasets:
         probe_points = load_points(
-            probe_results, tokenizer, score_field="score_drop", datasets=probe_datasets
+            probe_results, score_field="score_drop", datasets=probe_datasets
         )
         save_plots(probe_points, probe_results, score_field="score_drop")
         print(f"Saved two ProbeDelta plots to {probe_results}")

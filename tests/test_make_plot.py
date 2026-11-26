@@ -1,61 +1,21 @@
 import json
-import sys
-from types import SimpleNamespace
 
 import pytest
-import torch
 
 import make_plot
-from make_plot import DATASETS, SavedPromptEncoder, case_from_prediction, load_points, save_plots
-
-
-class CharacterTokenizer:
-    is_fast = True
-
-    def __call__(self, text, **kwargs):
-        return {
-            "input_ids": torch.arange(len(text)).unsqueeze(0),
-            "offset_mapping": torch.tensor(
-                [(i, i + 1) for i in range(len(text))]
-            ).unsqueeze(0),
-        }
+from make_plot import DATASETS, load_points, save_plots
 
 
 def prediction(dataset, label):
-    if dataset == "deepset":
-        system, user = "Say xxxxxx", "Some user data"
-        extra = {"text": user}
-    else:
-        system, user = "Follow task.\nContext:\nexternal text", "Find answer"
-        extra = {"context": "external text", "user_question": user}
-    rendered = (
-        f"<|im_start|>system\n{system}<|im_end|>\n"
-        f"<|im_start|>user\n{user}<|im_end|>\n"
-        "<|im_start|>assistant\n"
-    )
+    instruction_tokens = 11 if dataset == "deepset" else 35
+    total_tokens = 100 if dataset == "deepset" else 230
     return {
         "sample_id": f"{dataset}-{label}", "dataset": dataset,
         "label": label, "focus_score": 0.7 if label == 0 else 0.3,
         "score_drop": 0.4 if label == 0 else -0.2,
-        "formatted_text": rendered, **extra,
+        "instruction_token_count": instruction_tokens,
+        "total_token_count": total_tokens,
     }
-
-
-def test_saved_prompt_uses_experiment_instruction_spans():
-    encoder = SavedPromptEncoder(CharacterTokenizer())
-    for dataset in DATASETS:
-        case = case_from_prediction(prediction(dataset, 0))
-        input_ids, instruction_ids, data_ids = encoder._encode(case)
-        if dataset == "deepset":
-            expected_instruction = "Say xxxxxx"
-            expected_data = "Some user data"
-        else:
-            expected_instruction = "Follow task.\nContext:\nFind answer"
-            expected_data = "external text"
-        rendered = case.metadata["formatted_text"]
-        assert "".join(rendered[i] for i in instruction_ids) == expected_instruction
-        assert "".join(rendered[i] for i in data_ids) == expected_data
-        assert input_ids.shape[1] == len(rendered)
 
 
 def test_load_points_and_save_both_plots(tmp_path):
@@ -65,14 +25,12 @@ def test_load_points_and_save_both_plots(tmp_path):
             "\n".join(json.dumps(prediction(dataset, label)) for label in (0, 1)) + "\n",
             encoding="utf-8",
         )
-    points = load_points(tmp_path, CharacterTokenizer())
+    points = load_points(tmp_path)
     assert len(points) == 8
     for dataset, label, instruction_tokens, ratio, score in points:
         row = prediction(dataset, label)
-        expected = (len("Say xxxxxx") if dataset == "deepset"
-                    else len("Follow task.\nContext:\n") + len("Find answer"))
-        assert instruction_tokens == expected
-        assert ratio == expected / len(row["formatted_text"])
+        assert instruction_tokens == row["instruction_token_count"]
+        assert ratio == row["instruction_token_count"] / row["total_token_count"]
         assert score == row["focus_score"]
 
     save_plots(points, tmp_path)
@@ -86,9 +44,6 @@ def test_load_points_and_save_both_plots(tmp_path):
 
 @pytest.mark.parametrize("with_probe_results", [False, True])
 def test_main_saves_available_probe_plots(tmp_path, monkeypatch, with_probe_results):
-    (tmp_path / "tracker_qwen3_8b.json").write_text(
-        json.dumps({"model_id": "test-model"}), encoding="utf-8"
-    )
     for dataset in DATASETS:
         (tmp_path / f"{dataset}_predictions.jsonl").write_text(
             json.dumps(prediction(dataset, 0)) + "\n", encoding="utf-8"
@@ -102,11 +57,6 @@ def test_main_saves_available_probe_plots(tmp_path, monkeypatch, with_probe_resu
             encoding="utf-8",
         )
 
-    tokenizer = CharacterTokenizer()
-    fake_transformers = SimpleNamespace(
-        AutoTokenizer=SimpleNamespace(from_pretrained=lambda *args, **kwargs: tokenizer)
-    )
-    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
     monkeypatch.setattr(make_plot, "RESULTS", tmp_path)
 
     make_plot.main()
@@ -116,6 +66,29 @@ def test_main_saves_available_probe_plots(tmp_path, monkeypatch, with_probe_resu
         assert (probe_results / f"{stem}_vs_score_drop.png").is_file() == with_probe_results
     if with_probe_results:
         points = load_points(
-            probe_results, tokenizer, score_field="score_drop", datasets=("deepset",)
+            probe_results, score_field="score_drop", datasets=("deepset",)
         )
         assert [point[4] for point in points] == [0.4, -0.2]
+
+
+@pytest.mark.parametrize("missing_field", ["instruction_token_count", "total_token_count"])
+def test_load_points_rejects_legacy_rows(tmp_path, missing_field):
+    row = prediction("deepset", 0)
+    del row[missing_field]
+    path = tmp_path / "deepset_predictions.jsonl"
+    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=f"Missing {missing_field}.*deepset_predictions.jsonl:1"):
+        load_points(tmp_path, datasets=("deepset",))
+
+
+@pytest.mark.parametrize("instruction,total", [(0, 100), (11, 0), (101, 100), (True, 100), (11.0, 100)])
+def test_load_points_rejects_invalid_token_counts(tmp_path, instruction, total):
+    row = prediction("deepset", 0)
+    row["instruction_token_count"] = instruction
+    row["total_token_count"] = total
+    path = tmp_path / "deepset_predictions.jsonl"
+    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="deepset_predictions.jsonl:1"):
+        load_points(tmp_path, datasets=("deepset",))
